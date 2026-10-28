@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="ru" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-src https:; child-src https:">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CP77 Launcher v2</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div id="app">
+    <aside class="sidebar">
+      <div class="brand"><span class="logo">CP</span><span>77 Launcher</span><span class="ver">v2</span></div>
+      <nav>
+        <button class="nav active" data-tab="mods"><span data-icon="mods"></span>Моды<span class="badge" id="modCount"></span></button>
+        <button class="nav" data-tab="collections"><span data-icon="collections"></span>Коллекции</button>
+        <button class="nav" data-tab="nexus"><span data-icon="globe"></span>Nexus Mods</button>
+        <button class="nav" data-tab="settings"><span data-icon="settings"></span>Настройки</button>
+      </nav>
+      <div class="spacer"></div>
+      <button id="themeBtn" class="ghost" title="Сменить тему"><span data-icon="moon" id="themeIcon"></span><span id="themeLabel">Тёмная тема</span></button>
+      <button id="playBtn" class="play"><span data-icon="play"></span><span id="playLabel">Играть</span></button>
+    </aside>
+
+    <main>
+      <div id="busy" class="busy" hidden>Установка…</div>
+
+      <section id="tab-mods" class="tab active">
+        <header class="toolbar">
+          <h1>Моды</h1>
+          <input id="search" class="input search" type="search" placeholder="Поиск…">
+          <button id="updBtn" class="btn" title="Проверить, вышли ли новые версии на Nexus Mods"><span data-icon="reload"></span><span id="updLabel">Обновления</span><span class="badge up" id="updBadge"></span></button>
+          <button id="compatBtn" class="btn" title="Конфликты файлов и недостающие фреймворки"><span data-icon="shield"></span><span>Совместимость</span><span class="badge" id="compatBadge"></span></button>
+          <button id="addBtn" class="btn primary"><span data-icon="plus"></span>Добавить мод</button>
+        </header>
+        <div class="table" id="modTable">
+          <div class="row head" id="modHead">
+            <span></span>
+            <button data-sort="name">Название</button>
+            <button data-sort="version">Версия</button>
+            <button data-sort="installedAt">Установлен</button>
+            <button data-sort="size">Размер</button>
+            <span></span>
+          </div>
+          <div id="modRows" class="rows"></div>
+          <div id="modEmpty" class="empty" hidden>
+            <div class="empty-icon" data-icon="download" data-size="42"></div>
+            <h2>Модов пока нет</h2>
+            <p>Перетащите архив мода (.zip, .7z, .rar) в окно — он установится сам.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="tab-collections" class="tab">
+        <header class="toolbar">
+          <h1>Коллекции</h1>
+          <button id="newCollBtn" class="btn primary"><span data-icon="plus"></span>Новая коллекция</button>
+        </header>
+        <div id="collGrid" class="grid"></div>
+        <div id="collEmpty" class="empty" hidden>
+          <div class="empty-icon" data-icon="collections" data-size="42"></div>
+          <h2>Коллекций пока нет</h2>
+          <p>Объедините установленные моды в набор и включайте их одним переключателем.</p>
+        </div>
+      </section>
+
+      <section id="tab-nexus" class="tab">
+        <header class="toolbar nexus-bar">
+          <button id="nxBack" class="icon-btn" title="Назад" data-icon="back"></button>
+          <button id="nxFwd" class="icon-btn" title="Вперёд" data-icon="forward"></button>
+          <button id="nxReload" class="icon-btn" title="Обновить" data-icon="reload"></button>
+          <input id="nxUrl" class="input url" readonly>
+          <button class="btn" data-nx="https://www.nexusmods.com/games/cyberpunk2077">Главная</button>
+          <button class="btn" data-nx="https://www.nexusmods.com/games/cyberpunk2077/mods">Моды</button>
+          <button class="btn" data-nx="https://www.nexusmods.com/games/cyberpunk2077/collections">Коллекции</button>
+        </header>
+        <div id="nexusHost" class="nexus-host"></div>
+        <div id="dlBar" class="dl-bar" hidden><span id="dlName"></span><div class="progress"><i id="dlFill"></i></div></div>
+      </section>
+
+      <section id="tab-settings" class="tab">
+        <header class="toolbar"><h1>Настройки</h1></header>
+        <div class="settings">
+          <div class="field">
+            <label>Тема</label>
+            <div class="seg">
+              <button data-theme-set="dark">Тёмная</button>
+              <button data-theme-set="light">Светлая</button>
+            </div>
+          </div>
+          <div class="field">
+            <label for="nxKey">Аккаунт Nexus Mods</label>
+            <div id="nxStatus" class="hint"></div>
+            <div class="inline" id="nxLinkRow">
+              <button id="nxLogin" class="btn primary">Войти через Nexus</button>
+              <button id="nxCancel" class="btn" hidden>Отмена</button>
+              <input id="nxKey" class="input" type="password" placeholder="или вставьте API-ключ вручную" autocomplete="off" spellcheck="false">
+              <button id="nxLink" class="btn">Привязать</button>
+            </div>
+            <button id="nxUnlink" class="btn danger" hidden>Отвязать аккаунт</button>
+            <small class="hint">Откроется страница Nexus Mods в вашем браузере. Войдите и скопируйте «Personal API Key» — лаунчер сам подхватит ключ из буфера обмена и привяжет аккаунт.</small>
+          </div>
+          <div class="field">
+            <label for="launchPath">Ярлык или файл для запуска игры</label>
+            <div class="inline">
+              <input id="launchPath" class="input" placeholder="C:\Games\Cyberpunk 2077\bin\x64\Cyberpunk2077.exe или путь к .lnk">
+              <button id="pickLaunch" class="btn">Обзор…</button>
+            </div>
+            <small id="launchHint" class="hint"></small>
+          </div>
+          <div class="field">
+            <label for="gameDir">Папка игры (куда устанавливаются моды)</label>
+            <div class="inline">
+              <input id="gameDir" class="input" placeholder="C:\Games\Cyberpunk 2077">
+              <button id="pickDir" class="btn">Обзор…</button>
+              <button id="detectBtn" class="btn">Найти</button>
+            </div>
+            <small id="dirHint" class="hint"></small>
+          </div>
+          <div class="field">
+            <label for="launchArgs">Параметры запуска</label>
+            <input id="launchArgs" class="input" placeholder="-skipStartScreen">
+          </div>
+          <small id="saved" class="hint ok" hidden>Сохранено</small>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="dialog"></dialog>
+  <div id="dropOverlay" class="drop"><div>Отпустите файл, чтобы установить мод</div></div>
+  <div id="toasts"></div>
+</body>
+</html>

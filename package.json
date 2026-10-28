@@ -1,0 +1,20 @@
+{
+  "name": "cp-77-v2",
+  "version": "2.0.0",
+  "description": "CP77 Launcher v2 - Cyberpunk 2077 mod launcher",
+  "author": "CP77 Launcher",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win --publish never --config electron-builder.config.js"
+  },
+  "dependencies": {
+    "7zip-bin": "^5.2.0",
+    "node-unrar-js": "^2.0.2"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  }
+}
