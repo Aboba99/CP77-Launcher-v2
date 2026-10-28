@@ -1,0 +1,33 @@
+name: Build installer
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - id: meta
+        shell: bash
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+      - run: npm install
+      - run: npm run dist
+      # the web installer downloads its package from the release with the tag v<version>
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.meta.outputs.version }}
+          name: CP77 Launcher v${{ steps.meta.outputs.version }}
+          files: |
+            dist/*.exe
+            dist/*.7z
