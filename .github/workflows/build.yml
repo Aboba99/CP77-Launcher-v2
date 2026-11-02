@@ -28,6 +28,8 @@ jobs:
         with:
           tag_name: v${{ steps.meta.outputs.version }}
           name: CP77 Launcher v${{ steps.meta.outputs.version }}
+          # nsis-web writes its output to dist/nsis-web/; fail loudly instead of publishing an empty release
+          fail_on_unmatched_files: true
           files: |
-            dist/*.exe
-            dist/*.7z
+            dist/nsis-web/*.exe
+            dist/nsis-web/*.7z
