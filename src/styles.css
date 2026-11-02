@@ -25,7 +25,8 @@ h1 { font-size: 20px; margin: 0; font-weight: 600; flex: 1; }
 h2 { margin: 8px 0 4px; font-size: 17px; }
 svg { display: block; flex: none; }
 
-#app { display: flex; height: 100%; }
+body { display: flex; flex-direction: column; }
+#app { display: flex; flex: 1; min-height: 0; }
 
 /* sidebar */
 .sidebar {
@@ -166,7 +167,7 @@ dialog h2 { margin: 0 0 12px; }
 .drop { position: fixed; inset: 0; z-index: 50; display: none; place-items: center; pointer-events: none; background: rgba(0, 0, 0, .6); }
 .drop.show { display: grid; }
 .drop div { padding: 40px 60px; border: 2px dashed var(--accent); border-radius: 16px; font-size: 18px; font-weight: 600; color: #fff; }
-#toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 60; max-width: 380px; }
+#toasts { position: fixed; right: 16px; bottom: 44px; display: flex; flex-direction: column; gap: 8px; z-index: 60; max-width: 380px; }
 .toast { background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--muted); border-radius: 8px; padding: 10px 14px; box-shadow: 0 6px 20px rgba(0, 0, 0, .3); animation: in .2s; user-select: text; }
 .toast.success { border-left-color: var(--ok); }
 .toast.error { border-left-color: var(--danger); }
@@ -175,3 +176,20 @@ dialog h2 { margin: 0 0 12px; }
 
 ::-webkit-scrollbar { width: 10px; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 5px; border: 2px solid transparent; background-clip: content-box; }
+
+/* status bar: Nexus API quota */
+.statusbar {
+  flex: none; display: flex; align-items: center; gap: 18px; height: 28px; padding: 0 14px;
+  background: var(--panel); border-top: 1px solid var(--border); font-size: 12px; color: var(--muted);
+  white-space: nowrap; overflow: hidden;
+}
+.sb-title { font-weight: 600; color: var(--text); }
+.sb-meter { display: flex; align-items: center; gap: 8px; }
+.sb-meter:empty { display: none; }
+.sb-meter b { font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+.sb-bar { width: 90px; height: 6px; border-radius: 3px; background: var(--panel2); overflow: hidden; }
+.sb-bar i { display: block; height: 100%; background: var(--ok); transition: width .3s; }
+.sb-meter.warn .sb-bar i { background: var(--warn); }
+.sb-meter.bad .sb-bar i { background: var(--danger); }
+.sb-meter.bad b { color: var(--danger); }
+.sb-note { margin-left: auto; overflow: hidden; text-overflow: ellipsis; }

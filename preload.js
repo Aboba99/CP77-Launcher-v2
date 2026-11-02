@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.documentElement.dataset.theme = theme === 'light' ? 'light' : 'dark';
 });
 
-const EVENTS = new Set(['toast', 'download', 'library:changed', 'nexus:user', 'nexus:open', 'goto']);
+const EVENTS = new Set(['toast', 'download', 'library:changed', 'nexus:user', 'nexus:limits', 'nexus:open', 'goto']);
 let dropHandler = null;
 
 // Dropped files: resolve real paths here (File.path no longer exists in modern Electron)

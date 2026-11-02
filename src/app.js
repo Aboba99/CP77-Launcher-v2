@@ -9,6 +9,7 @@ const state = {
   mods: [],
   collections: [],
   nexus: { linked: false, user: null, waiting: false },
+  limits: null, // Nexus API quota: { hourly, daily } of { limit, remaining, reset }
   search: '',
   sort: { key: 'installedAt', dir: -1 },
   busy: 0,
@@ -484,6 +485,55 @@ function renderNexus() {
   $('#nxLogin').hidden = waiting;
   $('#nxCancel').hidden = !waiting;
   $('#nxUnlink').hidden = !linked || waiting;
+  renderLimits(); // the quota bar is shown only while an account is linked
+}
+
+/* ------------------------------------------------------- nexus API quota bar */
+
+const fmtInt = new Intl.NumberFormat('ru-RU');
+const fmtTime = (ts) => new Date(ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+const fmtDay = (ts) => new Date(ts).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+
+/** A reading whose reset time already passed means the bucket is full again. */
+function liveBucket(b) {
+  if (!b) return null;
+  return b.reset && b.reset <= Date.now() ? { ...b, remaining: b.limit, stale: true } : b;
+}
+
+function meter(el, label, bucket, formatReset) {
+  el.replaceChildren();
+  el.className = 'sb-meter';
+  if (!bucket) return;
+  const used = bucket.limit - bucket.remaining;
+  const share = used / bucket.limit;
+  el.classList.toggle('warn', share >= 0.75 && share < 0.95);
+  el.classList.toggle('bad', share >= 0.95);
+  const fill = h('i');
+  fill.style.width = `${Math.round(share * 100)}%`;
+  el.append(
+    h('span', { text: label }),
+    h('div', { class: 'sb-bar' }, fill),
+    h('b', { text: `${fmtInt.format(used)} / ${fmtInt.format(bucket.limit)}` })
+  );
+  el.title = `${label}: использовано ${fmtInt.format(used)} из ${fmtInt.format(bucket.limit)}, осталось ${fmtInt.format(bucket.remaining)}`
+    + (bucket.reset && !bucket.stale ? `\nСброс: ${formatReset(bucket.reset)}` : '');
+}
+
+function renderLimits() {
+  const bar = $('#statusBar');
+  bar.hidden = !state.nexus || !state.nexus.linked;
+  if (bar.hidden) return;
+
+  const hourly = liveBucket(state.limits && state.limits.hourly);
+  const daily = liveBucket(state.limits && state.limits.daily);
+  meter($('#sbHourly'), 'Час', hourly, fmtTime);
+  meter($('#sbDaily'), 'Сутки', daily, fmtDay);
+
+  const note = $('#sbNote');
+  if (!hourly && !daily) note.textContent = 'нет данных — появятся после первого запроса к Nexus';
+  else if (hourly && hourly.remaining === 0 && daily && daily.remaining === 0) note.textContent = `лимит исчерпан, сброс ${fmtDay(daily.reset)}`;
+  else if (hourly && hourly.remaining === 0) note.textContent = `часовой лимит исчерпан, сброс в ${fmtTime(hourly.reset)}`;
+  else note.textContent = '';
 }
 
 async function linkNexus() {
@@ -567,8 +617,10 @@ async function main() {
   state.mods = init.library.mods;
   state.collections = init.library.collections;
   state.nexus = init.nexus;
+  state.limits = init.limits;
   applyTheme();
   renderNexus();
+  setInterval(renderLimits, 30e3); // roll over to a full bucket once its reset time passes
   loadSettingsForm();
 
   $$('.nav').forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab)));
@@ -656,6 +708,10 @@ async function main() {
   api.on('nexus:user', (n) => {
     state.nexus = n;
     renderNexus();
+  });
+  api.on('nexus:limits', (limits) => {
+    state.limits = limits;
+    renderLimits();
   });
   api.on('goto', showTab);
   api.on('nexus:open', (url) => {

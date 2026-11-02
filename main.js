@@ -6,7 +6,7 @@ const { spawn } = require('child_process');
 const { createStore } = require('./lib/store');
 const { Library } = require('./lib/library');
 const { detectGame, deriveGameDir, isGameDir } = require('./lib/game');
-const { GAME, createNexus, isApiKey, parseNxm } = require('./lib/nexus');
+const { GAME, createNexus, isApiKey, parseNxm, mergeRateLimits } = require('./lib/nexus');
 const { hasUpdate } = require('./lib/versions');
 
 const NEXUS_PARTITION = 'persist:nexus';
@@ -23,6 +23,7 @@ let settings = null;
 let library = null;
 let nexus = null;
 let nexusUser = null;
+let rateLimits = { key: '', limits: null }; // last API quota reading, tied to the key it belongs to
 let loginTimer = null;
 
 const pendingUpdates = new Map(); // modId -> { replaceId, fileId, version, until }
@@ -97,9 +98,22 @@ function setKey(key) {
   else if (safeStorage.isEncryptionAvailable()) settings.data.nexusKey = safeStorage.encryptString(key).toString('base64');
   else settings.data.nexusKey = Buffer.from(key, 'utf8').toString('base64');
   settings.save();
+  send('nexus:limits', currentLimits());
 }
 
 const nexusState = () => ({ linked: !!settings.data.nexusKey, user: nexusUser, waiting: !!loginTimer });
+
+/** Quota of the linked account only: readings made with another key (e.g. one being validated) stay hidden. */
+function currentLimits() {
+  const key = getKey();
+  return key && rateLimits.key === key ? rateLimits.limits : null;
+}
+
+function onRateLimit(limits, apiKey) {
+  if (rateLimits.key !== apiKey) rateLimits = { key: apiKey, limits: null };
+  rateLimits.limits = mergeRateLimits(rateLimits.limits, limits);
+  if (apiKey === getKey()) send('nexus:limits', rateLimits.limits);
+}
 
 async function refreshNexusUser() {
   const key = getKey();
@@ -425,7 +439,7 @@ function registerIpc() {
     event.returnValue = settings.data.theme;
   });
 
-  handle('app:init', () => ({ settings: publicSettings(), library: library.snapshot(), nexus: nexusState() }));
+  handle('app:init', () => ({ settings: publicSettings(), library: library.snapshot(), nexus: nexusState(), limits: currentLimits() }));
 
   handle('settings:set', (patch) => {
     const data = settings.data;
@@ -542,7 +556,7 @@ if (!app.requestSingleInstanceLock()) {
       getGameDir: () => settings.data.gameDir,
       onChange: (snapshot) => send('library:changed', snapshot),
     });
-    nexus = createNexus({ fetchImpl: (url, opts) => net.fetch(url, opts), version: app.getVersion() });
+    nexus = createNexus({ fetchImpl: (url, opts) => net.fetch(url, opts), version: app.getVersion(), onRateLimit });
 
     if (!settings.data.gameDir) {
       const found = detectGame();
