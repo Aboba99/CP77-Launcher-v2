@@ -22,7 +22,8 @@ sealed class McLan : Form
     const int LanPort = 4445; // Minecraft Java LAN discovery: 224.0.2.60:4445, "[MOTD]name[/MOTD][AD]port[/AD]"
     static readonly IPAddress Group = IPAddress.Parse("224.0.2.60");
     static readonly Regex Beacon = new Regex(@"\[MOTD\](.*?)\[/MOTD\]\[AD\](\d{1,5})\[/AD\]", RegexOptions.Singleline);
-    static readonly TimeSpan Stale = TimeSpan.FromSeconds(5); // Minecraft announces every 1.5 s
+    static readonly TimeSpan Stale = TimeSpan.FromSeconds(5), RelayFor = TimeSpan.FromSeconds(3); // Minecraft announces every 1.5 s
+    enum View { Search, Host, Remote }
 
     readonly Label status = new Label(), hint = new Label();
     readonly TextBox addr = new TextBox();
@@ -31,12 +32,16 @@ sealed class McLan : Form
     readonly int relayPort;
 
     List<IPAddress> locals = new List<IPAddress>(), bcasts = new List<IPAddress>();
-    IPAddress myIp, hostIp;
-    int hostPort;
-    bool isHost;
-    string motd;
-    byte[] beacon;
-    DateTime seen;
+    IPAddress myIp, remoteIp;
+    int localPort, remotePort, ticks;
+    string localMotd, remoteMotd;
+    byte[] localBeacon;
+    DateTime localSeen, remoteSeen;
+    View shown;
+    bool linkOk = true;
+
+    static bool Fresh(DateTime t) { return DateTime.UtcNow - t < Stale; }
+    View Current { get { return Fresh(localSeen) ? View.Host : Fresh(remoteSeen) ? View.Remote : View.Search; } }
 
     McLan()
     {
@@ -77,17 +82,20 @@ sealed class McLan : Form
         t.Controls.Add(fw, 0, 3);
         Controls.Add(t);
 
-        copy.Click += (s, e) => { if (addr.Text.Length > 0) Clipboard.SetText(addr.Text); };
-        check.Click += (s, e) => Check();
+        copy.Click += (s, e) => { try { if (addr.Text.Length > 0) Clipboard.SetText(addr.Text); } catch (ExternalException) { } };
+        check.Click += (s, e) => Check(false);
         fw.Click += (s, e) => Firewall();
-        addr.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; Check(); } };
+        addr.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; Check(false); } };
 
         relayPort = ((IPEndPoint)relay.Client.LocalEndPoint).Port;
         listen.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
         try { listen.Client.Bind(new IPEndPoint(IPAddress.Any, LanPort)); }
         catch (SocketException ex) { status.Text = "Порт " + LanPort + " занят: " + ex.Message; return; }
         LoadNets();
-        NetworkChange.NetworkAddressChanged += (s, e) => BeginInvoke((Action)LoadNets);
+        NetworkChange.NetworkAddressChanged += (s, e) =>
+        {
+            try { BeginInvoke((Action)LoadNets); } catch (InvalidOperationException) { } // form closed
+        };
         var timer = new System.Windows.Forms.Timer { Interval = 1500 };
         timer.Tick += (s, e) => Tick();
         timer.Start();
@@ -100,22 +108,27 @@ sealed class McLan : Form
         if (listen.Client.IsBound) new Thread(Receive) { IsBackground = true }.Start();
     }
 
-    // Local IPv4 addresses, their directed broadcasts, and the main IP (interface with a gateway).
+    // Local IPv4 addresses, their directed broadcasts, and the main IP (physical interface with a gateway first).
     void LoadNets()
     {
         var ips = new List<IPAddress>();
         var bc = new List<IPAddress> { IPAddress.Broadcast };
         IPAddress main = null;
-        foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+        bool mainPhys = false;
+        NetworkInterface[] all;
+        try { all = NetworkInterface.GetAllNetworkInterfaces(); }
+        catch (NetworkInformationException) { return; }
+        foreach (var ni in all)
         {
             if (ni.OperationalStatus != OperationalStatus.Up || ni.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
             var p = ni.GetIPProperties();
             bool gw = p.GatewayAddresses.Any(g => g.Address.AddressFamily == AddressFamily.InterNetwork && !g.Address.Equals(IPAddress.Any));
+            bool phys = ni.NetworkInterfaceType == NetworkInterfaceType.Ethernet || ni.NetworkInterfaceType == NetworkInterfaceType.Wireless80211;
             foreach (var u in p.UnicastAddresses)
             {
                 if (u.Address.AddressFamily != AddressFamily.InterNetwork) continue;
                 ips.Add(u.Address);
-                if (gw && main == null) main = u.Address;
+                if (gw && (main == null || phys && !mainPhys)) { main = u.Address; mainPhys = phys; }
                 if (u.IPv4Mask != null && !u.IPv4Mask.Equals(IPAddress.Any))
                 {
                     byte[] a = u.Address.GetAddressBytes(), m = u.IPv4Mask.GetAddressBytes();
@@ -153,52 +166,61 @@ sealed class McLan : Form
 
     void OnBeacon(IPEndPoint from, string name, int port, byte[] data)
     {
-        bool local = locals.Contains(from.Address);
-        if (local && from.Port == relayPort) return; // our own relay echo
-        bool changed = !from.Address.Equals(hostIp) || port != hostPort || name != motd;
-        hostIp = from.Address; hostPort = port; motd = name; isHost = local; beacon = data;
-        seen = DateTime.UtcNow;
-        if (!changed) return;
-        Render();
-        if (!isHost) Check();
+        bool changed;
+        if (locals.Contains(from.Address))
+        {
+            if (from.Port == relayPort) return; // our own relay echo
+            changed = !Fresh(localSeen) || port != localPort || name != localMotd;
+            localPort = port; localMotd = name; localBeacon = data; localSeen = DateTime.UtcNow;
+        }
+        else
+        {
+            bool fresh = Fresh(remoteSeen);
+            if (fresh && !from.Address.Equals(remoteIp)) return; // stick to the first world until it disappears
+            changed = !fresh || port != remotePort || name != remoteMotd;
+            remoteIp = from.Address; remotePort = port; remoteMotd = name; remoteSeen = DateTime.UtcNow;
+        }
+        if (changed) Render();
     }
 
     void Tick()
     {
-        if (hostIp == null) return;
-        if (DateTime.UtcNow - seen > Stale) { hostIp = null; Render(); return; }
-        if (!isHost) return;
-        foreach (var b in bcasts)
-            try { relay.Send(beacon, beacon.Length, new IPEndPoint(b, LanPort)); }
-            catch (SocketException) { }
+        if (Current != shown) Render();
+        if (shown == View.Host && DateTime.UtcNow - localSeen < RelayFor)
+            foreach (var b in bcasts)
+                try { relay.Send(localBeacon, localBeacon.Length, new IPEndPoint(b, LanPort)); }
+                catch (SocketException) { }
+        if (shown == View.Remote && !linkOk && check.Enabled && ++ticks % 2 == 0) Check(true); // retry until the host fixes its firewall
     }
 
     void Render()
     {
+        shown = Current;
         string me = myIp == null ? "нет сети" : myIp.ToString();
-        status.ForeColor = hostIp == null ? SystemColors.ControlText : Color.ForestGreen;
-        check.Visible = !isHost || hostIp == null;
-        if (hostIp == null)
+        status.ForeColor = shown == View.Search ? SystemColors.ControlText : Color.ForestGreen;
+        check.Visible = shown != View.Host;
+        if (shown == View.Search)
         {
             status.Text = "Ищу открытый мир…";
             hint.Text = "Хост: в Minecraft Esc → «Открыть для сети».\nЗапусти это приложение на обоих ПК — дальше всё само.\n" +
-                        "Можно ввести адрес вручную и нажать «Проверить».\nМой IP: " + me;
+                        "Не находит — нажми «Настроить брандмауэр» на обоих ПК или введи адрес вручную.\nМой IP: " + me;
         }
-        else if (isHost)
+        else if (shown == View.Host)
         {
-            status.Text = "✓ Мир «" + motd + "» открыт на этом ПК";
-            addr.Text = me + ":" + hostPort;
+            status.Text = "✓ Мир «" + localMotd + "» открыт на этом ПК";
+            addr.Text = me + ":" + localPort;
             hint.Text = "Мир сам появится у подруги в «Сетевой игре» (приложение дублирует сигнал для Wi-Fi). " +
                         "Если нет — «Прямое подключение» → адрес выше.\nНе пускает? Нажми «Настроить брандмауэр» (после каждого открытия мира).";
         }
         else
         {
-            status.Text = "✓ Найден мир «" + motd + "»";
-            addr.Text = hostIp + ":" + hostPort;
+            status.Text = "✓ Найден мир «" + remoteMotd + "»";
+            addr.Text = remoteIp + ":" + remotePort;
+            if (check.Enabled) Check(false);
         }
     }
 
-    async void Check()
+    async void Check(bool quiet)
     {
         var parts = addr.Text.Trim().Split(':');
         IPAddress ip;
@@ -209,7 +231,7 @@ sealed class McLan : Form
             return;
         }
         check.Enabled = false;
-        hint.Text = "Проверяю связь с " + ip + ":" + port + "…";
+        if (!quiet) hint.Text = "Проверяю связь с " + ip + ":" + port + "…";
         bool ok = await Task.Run(() =>
         {
             using (var c = new TcpClient())
@@ -217,21 +239,26 @@ sealed class McLan : Form
                 catch (Exception) { return false; }
         });
         check.Enabled = true;
+        linkOk = ok;
+        if (quiet && !ok) return;
         hint.Text = ok
             ? "✓ Связь есть. Мир появится в «Сетевой игре»; если нет — «Прямое подключение» → этот адрес."
             : "✗ Нет связи. На ПК хоста нажми «Настроить брандмауэр» в этом приложении.\n" +
               "Не помогло — проверь, что оба в одной сети, и выключи в роутере «изоляцию клиентов» (AP isolation).";
     }
 
-    // Removes inbound Java block rules (left after "Cancel" in the Windows prompt) and allows LAN discovery + the world port.
+    // Removes inbound block rules for Java and this app (left after "Cancel" in the Windows prompt; block beats allow)
+    // and allows LAN discovery + the world port on every network profile.
     async void Firewall()
     {
-        string ps = "Get-NetFirewallApplicationFilter|?{$_.Program -like '*java*'}|Get-NetFirewallRule|" +
+        string self = Application.ExecutablePath.Replace("'", "''");
+        string ps = "$ErrorActionPreference='Stop';" +
+                    "Get-NetFirewallApplicationFilter|?{$_.Program -like '*java*' -or $_.Program -eq '" + self + "'}|Get-NetFirewallRule|" +
                     "?{$_.Direction -eq 'Inbound' -and $_.Action -eq 'Block'}|Remove-NetFirewallRule;" +
                     "Remove-NetFirewallRule -DisplayName 'Minecraft LAN' -EA 0;" +
                     "New-NetFirewallRule -DisplayName 'Minecraft LAN' -Direction Inbound -Protocol UDP -LocalPort " + LanPort + " -Action Allow -EA Stop|Out-Null;" +
-                    (isHost && hostIp != null
-                        ? "New-NetFirewallRule -DisplayName 'Minecraft LAN' -Direction Inbound -Protocol TCP -LocalPort " + hostPort + " -Action Allow -EA Stop|Out-Null;"
+                    (shown == View.Host
+                        ? "New-NetFirewallRule -DisplayName 'Minecraft LAN' -Direction Inbound -Protocol TCP -LocalPort " + localPort + " -Action Allow -EA Stop|Out-Null;"
                         : "");
         fw.Enabled = false;
         try
