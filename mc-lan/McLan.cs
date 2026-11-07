@@ -85,7 +85,7 @@ sealed class McLan : Form
         copy.Click += (s, e) => { try { if (addr.Text.Length > 0) Clipboard.SetText(addr.Text); } catch (ExternalException) { } };
         check.Click += (s, e) => Check(false);
         fw.Click += (s, e) => Firewall();
-        addr.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; Check(false); } };
+        addr.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; if (check.Enabled) Check(false); } };
 
         relayPort = ((IPEndPoint)relay.Client.LocalEndPoint).Port;
         listen.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
@@ -230,6 +230,7 @@ sealed class McLan : Form
             hint.Text = "Введи адрес вида 192.168.1.5:54321";
             return;
         }
+        string target = addr.Text.Trim();
         check.Enabled = false;
         if (!quiet) hint.Text = "Проверяю связь с " + ip + ":" + port + "…";
         bool ok = await Task.Run(() =>
@@ -239,6 +240,7 @@ sealed class McLan : Form
                 catch (Exception) { return false; }
         });
         check.Enabled = true;
+        if (addr.Text.Trim() != target) { if (shown == View.Remote) Check(false); return; } // address changed mid-check
         linkOk = ok;
         if (quiet && !ok) return;
         hint.Text = ok
@@ -251,7 +253,7 @@ sealed class McLan : Form
     // and allows LAN discovery + the world port on every network profile.
     async void Firewall()
     {
-        string self = Application.ExecutablePath.Replace("'", "''");
+        string self = Regex.Replace(Application.ExecutablePath, "['\u2018-\u201B]", "$0$0"); // PowerShell quote chars
         string ps = "$ErrorActionPreference='Stop';" +
                     "Get-NetFirewallApplicationFilter|?{$_.Program -like '*java*' -or $_.Program -eq '" + self + "'}|Get-NetFirewallRule|" +
                     "?{$_.Direction -eq 'Inbound' -and $_.Action -eq 'Block'}|Remove-NetFirewallRule;" +
