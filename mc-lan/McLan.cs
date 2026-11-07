@@ -159,6 +159,7 @@ sealed class McLan : Form
             if (!m.Success || !int.TryParse(m.Groups[2].Value, out port) || port < 1 || port > 65535) continue;
             var from = ep;
             string name = m.Groups[1].Value;
+            if (name.Length > 40) name = name.Substring(0, 40) + "…";
             try { BeginInvoke((Action)(() => OnBeacon(from, name, port, d))); }
             catch (InvalidOperationException) { return; } // form closed
         }
@@ -207,7 +208,7 @@ sealed class McLan : Form
         }
         else if (shown == View.Host)
         {
-            status.Text = "✓ Мир «" + localMotd + "» открыт на этом ПК";
+            status.Text = "✓ Твой мир «" + localMotd + "» открыт";
             addr.Text = me + ":" + localPort;
             hint.Text = "Мир сам появится у подруги в «Сетевой игре» (приложение дублирует сигнал для Wi-Fi). " +
                         "Если нет — «Прямое подключение» → адрес выше.\nНе пускает? Нажми «Настроить брандмауэр» (после каждого открытия мира).";
