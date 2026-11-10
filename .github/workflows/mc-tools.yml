@@ -1,0 +1,23 @@
+name: Build Minecraft tools
+
+on:
+  push:
+    paths: [mc-lan/**, mc-net/**, .github/workflows/mc-tools.yml]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        app: [{ dir: mc-lan, name: McLan }, { dir: mc-net, name: McNet }]
+    steps:
+      - uses: actions/checkout@v4
+      - run: ${{ matrix.app.dir }}\build.bat
+        shell: cmd
+      - shell: pwsh
+        run: if (!(Test-Path ${{ matrix.app.dir }}\${{ matrix.app.name }}.exe)) { exit 1 }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.app.name }}
+          path: ${{ matrix.app.dir }}/${{ matrix.app.name }}.exe
