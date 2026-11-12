@@ -1,6 +1,7 @@
-// McNet: play a Minecraft Java "Open to LAN" world over the Internet without a VPN or a server.
-// Both players run it and exchange addresses. A direct UDP tunnel (NAT hole punching + reliable
-// ordered delivery) carries Minecraft's TCP; the friend's world shows up in the LAN list.
+// McNet: play a Minecraft Java "Open to LAN" world over the Internet without a VPN or an own server.
+// Both players run it with the same pair code; the apps find each other's public address through a
+// public message board (ntfy) and build a direct UDP tunnel (NAT hole punching + reliable ordered
+// delivery) that carries Minecraft's TCP. The friend's world shows up in the LAN list.
 // Build: build.bat (uses csc from .NET Framework 4.x shipped with Windows). C# 5 only.
 using System;
 using System.Collections.Concurrent;
@@ -13,6 +14,7 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -25,6 +27,7 @@ sealed class McNet : Form
     const byte Open = 0, Bytes = 1, Fin = 2;                       // frame: stream id, kind (|0x80 when sent by the stream's opener), payload
     static readonly IPAddress Group = IPAddress.Parse("224.0.2.60");
     static readonly Regex Beacon = new Regex(@"\[MOTD\](.*?)\[/MOTD\]\[AD\](\d{1,5})\[/AD\]", RegexOptions.Singleline);
+    static readonly Regex Note = new Regex(@"""message"":""([0-9a-f]{8}) (\d{1,3}(?:\.\d{1,3}){3}:\d{1,5})""");
     static readonly string[] StunHosts = { "stun.l.google.com:19302", "stun.cloudflare.com:3478", "stun.sipnet.ru:3478" };
 
     sealed class Pkt { public byte[] Buf; public long Sent; public int Tx = 1, Skip; }
@@ -35,7 +38,7 @@ sealed class McNet : Form
     }
 
     readonly Label status = new Label(), hint = new Label();
-    readonly TextBox mine = new TextBox { ReadOnly = true }, friend = new TextBox();
+    readonly TextBox pair = new TextBox(), mine = new TextBox { ReadOnly = true }, friend = new TextBox();
     readonly Button copy = new Button { Text = "Копировать" }, connect = new Button { Text = "Соединить" };
     readonly string cfg = Path.ChangeExtension(Application.ExecutablePath, ".txt");
 
@@ -54,11 +57,11 @@ sealed class McNet : Form
     System.Threading.Timer ticker;
     IPEndPoint peer, me;
     uint myId, peerId, sndNext, sndUna, rcvNext;
-    bool est, symmetric, bad;
-    long seen, since, lastPunch, lastBeacon, localSeen = -Stale;
+    bool est, symmetric, bad, boardDown;
+    long seen, since, edited, lastPunch, lastBeacon, localSeen = -Stale;
     double srtt = -1, rttvar;
     int localPort, nextConn;
-    string localMotd = "", peerMotd = "";
+    string localMotd = "", peerMotd = "", code = "", board = "https://ntfy.sh";
 
     long Now { get { return clock.ElapsedMilliseconds; } }
     bool Linked { get { return est && Now - seen < 3000; } }
@@ -90,16 +93,18 @@ sealed class McNet : Form
             l.Margin = new Padding(3, 3, 3, S(8));
         }
         Func<string, Label> caption = s => new Label { Text = s, AutoSize = true, Anchor = AnchorStyles.Left };
-        foreach (var b in new[] { mine, friend }) { b.Font = new Font("Consolas", 12f); b.Dock = DockStyle.Fill; }
+        foreach (var b in new[] { pair, mine, friend }) { b.Font = new Font("Consolas", 12f); b.Dock = DockStyle.Fill; }
         foreach (var b in new[] { copy, connect }) { b.AutoSize = true; b.Dock = DockStyle.Fill; }
         t.Controls.Add(status, 0, 0); t.SetColumnSpan(status, 3);
-        t.Controls.Add(caption("Мой адрес"), 0, 1); t.Controls.Add(mine, 1, 1); t.Controls.Add(copy, 2, 1);
-        t.Controls.Add(caption("Адрес друга"), 0, 2); t.Controls.Add(friend, 1, 2); t.Controls.Add(connect, 2, 2);
-        t.Controls.Add(hint, 0, 3); t.SetColumnSpan(hint, 3);
+        t.Controls.Add(caption("Код пары"), 0, 1); t.Controls.Add(pair, 1, 1); t.Controls.Add(copy, 2, 1);
+        t.Controls.Add(caption("Мой адрес"), 0, 2); t.Controls.Add(mine, 1, 2);
+        t.Controls.Add(caption("Адрес друга"), 0, 3); t.Controls.Add(friend, 1, 3); t.Controls.Add(connect, 2, 3);
+        t.Controls.Add(hint, 0, 4); t.SetColumnSpan(hint, 3);
         Controls.Add(t);
 
-        copy.Click += (s, e) => { try { if (mine.Text.Length > 0) Clipboard.SetText(mine.Text); } catch (ExternalException) { } };
+        copy.Click += (s, e) => { try { if (pair.Text.Length > 0) Clipboard.SetText(pair.Text); } catch (ExternalException) { } };
         connect.Click += (s, e) => Connect();
+        pair.TextChanged += (s, e) => edited = Now;
         friend.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; Connect(); } };
 
         udp.ReceiveBufferSize = udp.SendBufferSize = 1 << 20;
@@ -115,15 +120,19 @@ sealed class McNet : Form
         lock (L) Reset();
         LoadNets();
         NetworkChange.NetworkAddressChanged += (s, e) => LoadNets();
-        try { friend.Text = File.ReadAllText(cfg).Trim(); } catch (IOException) { } catch (UnauthorizedAccessException) { }
-        if (friend.Text.Length > 0) Connect();
+        var saved = new string[0]; // pair code, friend's last address, optional message board URL
+        try { saved = File.ReadAllLines(cfg); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        pair.Text = code = saved.Length > 0 && saved[0].Trim().Length > 0 ? saved[0].Trim() : Guid.NewGuid().ToString("N").Substring(0, 10);
+        if (saved.Length > 2 && saved[2].Trim().Length > 0) board = saved[2].Trim().TrimEnd('/');
+        if (saved.Length > 1 && saved[1].Trim().Length > 0) { friend.Text = saved[1].Trim(); Connect(); }
+        else Save();
         Render();
     }
 
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
-        foreach (var a in new ThreadStart[] { Receive, Beacons, Accept, Stun }) Start(a);
+        foreach (var a in new ThreadStart[] { Receive, Beacons, Accept, Stun, Board }) Start(a);
         ticker = new System.Threading.Timer(o => Tick(), null, 20, 20);
         var ui = new System.Windows.Forms.Timer { Interval = 500 };
         ui.Tick += (s, a) => Render();
@@ -139,6 +148,10 @@ sealed class McNet : Form
     static void Start(ThreadStart a) { new Thread(a) { IsBackground = true }.Start(); }
     static void Put(byte[] b, int o, uint v) { b[o] = (byte)(v >> 24); b[o + 1] = (byte)(v >> 16); b[o + 2] = (byte)(v >> 8); b[o + 3] = (byte)v; }
     static uint Get(byte[] b, int o) { return (uint)(b[o] << 24 | b[o + 1] << 16 | b[o + 2] << 8 | b[o + 3]); }
+    static string Hash(string s)
+    {
+        using (var h = SHA256.Create()) return BitConverter.ToString(h.ComputeHash(Encoding.UTF8.GetBytes(s))).Replace("-", "").ToLowerInvariant();
+    }
     static string Cut(string s) { return s.Length > 40 ? s.Substring(0, 40) + "…" : s; }
 
     // ---------- UI ----------
@@ -156,34 +169,47 @@ sealed class McNet : Form
             since = Now;
             Reset();
         }
-        if (!bad)
-            try { File.WriteAllText(cfg, friend.Text.Trim()); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        if (!bad) Save();
         Render();
+    }
+
+    void Save()
+    {
+        try { File.WriteAllLines(cfg, new[] { code, bad ? "" : friend.Text.Trim(), board }); }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
     }
 
     void Render()
     {
-        string st, h;
+        string st, h, c = pair.Text.Trim();
+        if (c != code && Now - edited > 1500) // the pair code was edited and typing has stopped
+        {
+            lock (L) code = c;
+            Save();
+        }
         lock (L)
         {
             long now = Now;
             bool linked = Linked, hosting = now - localSeen < Stale;
             if (me != null && mine.Text != me.ToString()) mine.Text = me.ToString();
             st = me == null ? (now < 6000 ? "Узнаю свой адрес…" : "✗ Нет интернета или UDP заблокирован")
-               : peer == null ? "Обменяйтесь адресами"
+               : peer == null ? "Жду друга…"
                : !linked ? "Соединяюсь с другом…"
                : "✓ Соединено напрямую · " + (srtt < 1 ? "<1" : srtt.ToString("0")) + " мс";
             if (bad) h = "Адрес друга выглядит так: 93.184.216.34:47474";
             else if (peer == null)
-                h = "1. Скопируй «Мой адрес» и отправь другу.\n2. Вставь адрес друга и нажми «Соединить».\n" +
-                    "Это делают оба. Адрес запоминается — в следующий раз просто запустите приложение.";
+                h = "У вас должен быть одинаковый «Код пары»: отправь свой другу или вставь его код.\n" +
+                    "Дальше приложения сами найдут друг друга. Код запоминается.";
             else if (!linked)
                 h = now - since < 8000 ? "Пробиваю прямое соединение…"
-                  : "Друг должен запустить McNet и ввести твой адрес.\nАдреса меняются вместе с IP — сверьте их заново.";
+                  : "Друг должен запустить McNet с тем же кодом пары.";
             else if (hosting) h = "Твой мир «" + localMotd + "» виден другу в «Сетевой игре».";
             else if (peerMotd.Length > 0)
                 h = "Мир друга «" + peerMotd + "» уже в Minecraft: «Сетевая игра».\nНе появился — «Прямое подключение» → localhost:" + tcpPort;
             else h = "Хост: в Minecraft Esc → «Открыть для сети» — мир сам появится у друга.";
+            if (boardDown && !linked)
+                h += "\nСервис обмена адресами недоступен — обменяйтесь вручную: «Мой адрес» другу, его адрес сюда.";
             if (symmetric && !linked)
                 h += "\n⚠ Твой роутер или провайдер выдаёт разные порты (симметричный NAT) — напрямую может не соединиться.";
             status.ForeColor = linked ? Color.ForestGreen : SystemColors.ControlText;
@@ -231,6 +257,48 @@ sealed class McNet : Form
             if (!m.Success || !int.TryParse(m.Groups[2].Value, out port) || port < 1 || port > 65535 || port == tcpPort) continue; // tcpPort: our own announcement
             lock (L)
                 if (locals.Contains(((IPEndPoint)ep).Address)) { localPort = port; localMotd = Cut(m.Groups[1].Value); localSeen = Now; }
+        }
+    }
+
+    // Publishes our public address on a message board topic derived from the pair code and reads the friend's one.
+    void Board()
+    {
+        string sent = null, got = null;
+        long sentAt = 0, polled = -6000;
+        while (true)
+        {
+            Thread.Sleep(1000);
+            string c, addr;
+            bool linked;
+            lock (L) { c = code.ToLowerInvariant(); addr = me == null ? null : me.ToString(); linked = Linked; }
+            if (c.Length < 6) continue;
+            string url = board + "/mcnet-" + Hash("McNet " + c).Substring(0, 32);
+            string tag = Hash(c + Environment.MachineName + Environment.UserName).Substring(0, 8); // tells our notes from the friend's
+            try
+            {
+                using (var w = new WebClient())
+                {
+                    if (addr != null && (url + addr != sent || Now - sentAt > 1800000)) // notes are kept for 12 h
+                    {
+                        w.UploadString(url, tag + " " + addr);
+                        sent = url + addr;
+                        sentAt = Now;
+                    }
+                    if (linked || Now - polled < 6000) continue;
+                    polled = Now;
+                    string found = null;
+                    foreach (Match m in Note.Matches(w.DownloadString(url + "/json?poll=1&since=12h")))
+                        if (m.Groups[1].Value != tag) found = m.Groups[2].Value; // the newest wins
+                    boardDown = false;
+                    if (found == null || url + found == got) continue;
+                    got = url + found;
+                    BeginInvoke((Action)(() => { if (friend.Text.Trim() != found) { friend.Text = found; Connect(); } }));
+                }
+            }
+            catch (WebException) { boardDown = true; polled = Now; }
+            catch (FormatException) { boardDown = true; polled = Now; }       // bad board URL in the settings file
+            catch (NotSupportedException) { boardDown = true; polled = Now; }
+            catch (InvalidOperationException) { return; }                     // form closed
         }
     }
 
@@ -548,6 +616,7 @@ sealed class McNet : Form
     static void Main()
     {
         try { SetProcessDPIAware(); } catch (Exception) { } // not available outside Windows
+        ServicePointManager.SecurityProtocol |= (SecurityProtocolType)3072; // TLS 1.2, off by default for .NET 4.x apps
         Application.EnableVisualStyles();
         Application.Run(new McNet());
     }
