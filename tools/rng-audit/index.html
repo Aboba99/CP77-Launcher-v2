@@ -1,0 +1,405 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>body{margin:0}</style>
+<title>Аудит рулетки ROB RUN</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&family=Unbounded:wght@500;700&display=swap">
+<style>
+/* Layout: instrument panel — keypad + log on the left, test bench readout on the right; stacks on phones */
+:root{
+  --bg:#f3f5f7; --panel:#ffffff; --ink:#18212b; --muted:#5d6b78; --line:#d9e0e6;
+  --accent:#1f6f8b; --accent-ink:#ffffff; --key:#eaf0f4; --key-hover:#d6e4ec;
+  --ok:#1d7a4a; --ok-bg:#e1f3e8; --warn:#9a6500; --warn-bg:#fbf0d6; --bad:#b3261e; --bad-bg:#fbe3e1; --na:#5d6b78; --na-bg:#eceff2;
+  --bar:#7fa9bd; --bar-hi:#b3261e; --band:rgba(31,111,139,.10);
+  --f-display:"Unbounded","Arial Black",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f151b; --panel:#172029; --ink:#e3eaf0; --muted:#93a3b1; --line:#2a3743;
+  --accent:#5fb3d1; --accent-ink:#0b1217; --key:#202c37; --key-hover:#2b3a48;
+  --ok:#6fd39b; --ok-bg:#163526; --warn:#f0c160; --warn-bg:#3a2e12; --bad:#ff8a80; --bad-bg:#3d1b19; --na:#93a3b1; --na-bg:#222d37;
+  --bar:#4f8aa6; --bar-hi:#ff8a80; --band:rgba(95,179,209,.12); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f151b; --panel:#172029; --ink:#e3eaf0; --muted:#93a3b1; --line:#2a3743;
+  --accent:#5fb3d1; --accent-ink:#0b1217; --key:#202c37; --key-hover:#2b3a48;
+  --ok:#6fd39b; --ok-bg:#163526; --warn:#f0c160; --warn-bg:#3a2e12; --bad:#ff8a80; --bad-bg:#3d1b19; --na:#93a3b1; --na-bg:#222d37;
+  --bar:#4f8aa6; --bar-hi:#ff8a80; --band:rgba(95,179,209,.12); color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.5}
+.wrap{max-width:1180px;margin:0 auto;padding-block:24px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:20px}
+header{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px}
+h1{font-family:var(--f-display);font-weight:700;font-size:clamp(22px,3.4vw,32px);margin:0;letter-spacing:-.01em;text-wrap:balance}
+.sub{color:var(--muted);margin:4px 0 0;max-width:62ch}
+h2{font-family:var(--f-display);font-weight:500;font-size:16px;margin:0;letter-spacing:.01em}
+.eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
+.grid{display:grid;grid-template-columns:minmax(0,380px) minmax(0,1fr);gap:20px;align-items:start}
+@media (max-width:860px){.grid{grid-template-columns:minmax(0,1fr)}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px;display:grid;gap:14px;min-width:0}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.keypad{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
+.key{font-family:var(--f-mono);font-weight:600;font-size:17px;padding:12px 0;border-radius:6px;border:1px solid var(--line);background:var(--key);color:var(--ink);cursor:pointer;font-variant-numeric:tabular-nums;touch-action:manipulation}
+.key:hover{background:var(--key-hover)}
+.key:active{transform:translateY(1px)}
+button,select,input,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.btn{border:1px solid var(--line);background:var(--panel);border-radius:6px;padding:7px 12px;cursor:pointer;font-size:14px}
+.btn:hover{background:var(--key)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn.danger{color:var(--bad);border-color:var(--bad)}
+select,input[type=number],textarea{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:7px 10px}
+textarea{width:100%;min-height:64px;resize:vertical;font-family:var(--f-mono);font-size:13px}
+.tape{font-family:var(--f-mono);font-size:13px;color:var(--muted);display:flex;flex-wrap:wrap;gap:4px;max-height:110px;overflow:auto}
+.tape span{background:var(--key);border-radius:4px;padding:1px 6px;color:var(--ink);font-variant-numeric:tabular-nums}
+.tape span.last{background:var(--accent);color:var(--accent-ink)}
+.count{font-family:var(--f-mono);font-size:28px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1}
+.banner{background:var(--warn-bg);color:var(--ink);border:1px solid var(--warn);border-radius:8px;padding:10px 12px;font-size:14px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
+.verdict{border-radius:10px;padding:16px 18px;display:grid;gap:4px}
+.verdict.ok{background:var(--ok-bg);border:1px solid var(--ok)}
+.verdict.bad{background:var(--bad-bg);border:1px solid var(--bad)}
+.verdict.warn{background:var(--warn-bg);border:1px solid var(--warn)}
+.verdict.na{background:var(--na-bg);border:1px solid var(--line)}
+.verdict strong{font-family:var(--f-display);font-weight:500;font-size:18px}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px;min-width:620px}
+th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:600}
+td.num{font-family:var(--f-mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+td .what{color:var(--muted);font-size:13px}
+.chip{display:inline-block;font-size:12px;font-weight:600;padding:2px 8px;border-radius:99px;white-space:nowrap}
+.chip.ok{background:var(--ok-bg);color:var(--ok)}
+.chip.bad{background:var(--bad-bg);color:var(--bad)}
+.chip.warn{background:var(--warn-bg);color:var(--warn)}
+.chip.na{background:var(--na-bg);color:var(--na)}
+svg text{fill:var(--muted);font-family:var(--f-mono);font-size:10px}
+.note{color:var(--muted);font-size:13px;max-width:72ch}
+.note b{color:var(--ink);font-weight:600}
+.copied{font-size:13px;color:var(--ok)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <div class="eyebrow">Внутренний аудит ГСЧ · 36 исходов</div>
+      <h1>Аудит рулетки ROB RUN</h1>
+      <p class="sub">Записывайте выпадения, и страница проверит, ведёт ли себя генератор как честный: равные частоты, нет зависимости от прошлых чисел, нет стратегии, которая угадывает чаще 1 из 36.</p>
+    </div>
+    <label class="row" for="range"><span class="eyebrow">Нумерация</span>
+      <select id="range"><option value="1">1–36</option><option value="0">0–35</option></select>
+    </label>
+  </header>
+
+  <div id="exampleBanner" class="banner" hidden>
+    <span>Сейчас загружен <b>пример</b>: 600 спинов от криптографически стойкого генератора браузера. Первое нажатие на число начнёт вашу собственную запись.</span>
+    <button class="btn" id="startOwn">Начать свою запись</button>
+  </div>
+
+  <div class="grid">
+    <section class="panel" aria-label="Ввод результатов">
+      <div class="row" style="justify-content:space-between">
+        <div><div class="eyebrow">Записано спинов</div><div class="count" id="count">0</div></div>
+        <div class="row">
+          <button class="btn" id="undo" title="Удалить последнее число">Отменить</button>
+        </div>
+      </div>
+      <div class="keypad" id="keypad"></div>
+      <form class="row" id="oneForm" autocomplete="off">
+        <input type="number" id="one" inputmode="numeric" placeholder="Число" style="width:110px">
+        <button class="btn primary" type="submit">Добавить</button>
+        <span class="note">Enter добавляет число</span>
+      </form>
+      <div>
+        <div class="eyebrow">Последние выпадения</div>
+        <div class="tape" id="tape"></div>
+      </div>
+      <details>
+        <summary class="eyebrow" style="cursor:pointer">Вставить списком или скопировать историю</summary>
+        <div style="display:grid;gap:8px;margin-top:10px">
+          <textarea id="bulk" placeholder="Например: 14 3 27 36 1, 9; 22"></textarea>
+          <div class="row">
+            <button class="btn" id="addBulk">Добавить из списка</button>
+            <button class="btn" id="copyAll">Скопировать историю</button>
+            <span class="copied" id="copyMsg" hidden>Скопировано</span>
+          </div>
+          <div class="note" id="bulkMsg"></div>
+        </div>
+      </details>
+      <div class="row" id="clearRow">
+        <button class="btn danger" id="clear">Очистить всё</button>
+      </div>
+      <div class="row" id="clearConfirm" hidden>
+        <span>Удалить все записанные спины?</span>
+        <button class="btn danger" id="clearYes">Удалить</button>
+        <button class="btn" id="clearNo">Отмена</button>
+      </div>
+    </section>
+
+    <section style="display:grid;gap:20px;min-width:0">
+      <div id="verdict" class="verdict na"></div>
+
+      <div class="panel">
+        <h2>Тесты</h2>
+        <div class="tbl"><table>
+          <thead><tr><th>Тест</th><th>Статистика</th><th>p-value</th><th>p (Холм)</th><th>Итог</th></tr></thead>
+          <tbody id="tests"></tbody>
+        </table></div>
+        <p class="note">Порог значимости <b>α = 0,01</b> после поправки Холма на число тестов. p-value показывает, насколько вероятен такой результат у честного генератора; маленькое значение означает подозрительное отклонение. При 8 тестах честный ГСЧ иногда даёт одиночное p &lt; 0,05, это нормально.</p>
+      </div>
+
+      <div class="panel">
+        <h2>Проверка «угадывания следующего»</h2>
+        <p class="note">Каждая стратегия делает прогноз на каждый спин, видя только предыдущие выпадения, а мы считаем попадания. У честного генератора любая стратегия попадает около <b>2,78%</b> (1 из 36). Стратегия «по последним 5 числам» отдельно не проверяется: одна и та же пятёрка повторяется примерно раз в 60 466 176 спинов, учиться ей не на чем. Её зависимость ловят порядки 1–2 и автокорреляция.</p>
+        <div class="tbl"><table>
+          <thead><tr><th>Стратегия</th><th>Прогнозов</th><th>Попаданий</th><th>Доля</th><th>p-value</th></tr></thead>
+          <tbody id="pred"></tbody>
+        </table></div>
+      </div>
+
+      <div class="panel">
+        <h2>Частоты выпадений</h2>
+        <div id="chart" style="overflow-x:auto"></div>
+        <p class="note">Линия показывает ожидаемую частоту, полоса — коридор ±2σ. У честного генератора примерно 1–3 числа из 36 выходят за полосу просто случайно. Красным выделены числа за пределами ±3σ.</p>
+      </div>
+
+      <div class="panel">
+        <h2>Сколько нужно данных</h2>
+        <p class="note">С ручным вводом реально набрать сотни спинов. Этого хватает, чтобы поймать грубые ошибки: зацикливание, залипание числа, сильный перекос. Перекос вероятности в 10% (2,78% → 3,06%) для одного числа требует десятков тысяч спинов. Для такой точности выгружайте логи с сервера и вставляйте их списком.</p>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+const K = 36, ALPHA = 0.01, KEY = "robrun-rng-audit-v1";
+let state = {base:1, seq:[], isExample:false};
+
+/* ---------- math ---------- */
+const LC=[0.99999999999980993,676.5203681218851,-1259.1392167224028,771.32342877765313,-176.61502916214059,12.507343278686905,-0.13857109526572012,9.9843695780195716e-6,1.5056327351493116e-7];
+function lgamma(x){ if(x<0.5) return Math.log(Math.PI/Math.abs(Math.sin(Math.PI*x)))-lgamma(1-x); x-=1; let a=LC[0]; const t=x+7.5; for(let i=1;i<9;i++) a+=LC[i]/(x+i); return 0.5*Math.log(2*Math.PI)+(x+0.5)*Math.log(t)-t+Math.log(a); }
+function gammaP(a,x){ let sum=1/a,del=sum,ap=a; for(let n=0;n<1000;n++){ap++;del*=x/ap;sum+=del;if(Math.abs(del)<Math.abs(sum)*1e-15)break;} return sum*Math.exp(-x+a*Math.log(x)-lgamma(a)); }
+function gammaQcf(a,x){ const T=1e-300; let b=x+1-a,c=1/T,d=1/b,h=d; for(let i=1;i<1000;i++){const an=-i*(i-a);b+=2;d=an*d+b;if(Math.abs(d)<T)d=T;c=b+an/c;if(Math.abs(c)<T)c=T;d=1/d;const del=d*c;h*=del;if(Math.abs(del-1)<1e-15)break;} return Math.exp(-x+a*Math.log(x)-lgamma(a))*h; }
+function chi2Sf(x,df){ if(!(x>0)) return 1; const a=df/2,y=x/2; return y<a+1 ? Math.max(0,1-gammaP(a,y)) : gammaQcf(a,y); }
+function erfc(x){ const z=Math.abs(x),t=1/(1+0.5*z); const r=t*Math.exp(-z*z-1.26551223+t*(1.00002368+t*(0.37409196+t*(0.09678418+t*(-0.18628806+t*(0.27886807+t*(-1.13520398+t*(1.48851587+t*(-0.82215223+t*0.17087277))))))))); return x>=0?r:2-r; }
+function normTwoSided(z){ return Math.min(1,erfc(Math.abs(z)/Math.SQRT2)); }
+function lchoose(n,k){ return lgamma(n+1)-lgamma(k+1)-lgamma(n-k+1); }
+function binomPmf(k,n,p){ return Math.exp(lchoose(n,k)+k*Math.log(p)+(n-k)*Math.log(1-p)); }
+function binomUpper(k,n,p){ let s=0; for(let i=k;i<=n;i++) s+=binomPmf(i,n,p); return Math.min(1,s); }
+function binomLower(k,n,p){ let s=0; for(let i=0;i<=k;i++) s+=binomPmf(i,n,p); return Math.min(1,s); }
+function binomTwo(k,n,p){ return Math.min(1,2*Math.min(binomUpper(k,n,p),binomLower(k,n,p))); }
+
+/* ---------- tests (work on 0..K-1 values) ---------- */
+function tUniform(v){
+  const need=K*5, n=v.length; if(n<need) return {need};
+  const c=new Array(K).fill(0); v.forEach(x=>c[x]++); const e=n/K;
+  const chi=c.reduce((s,o)=>s+(o-e)*(o-e)/e,0);
+  return {stat:`χ² = ${f(chi,1)}, df = ${K-1}`, p:chi2Sf(chi,K-1)};
+}
+function tTransition(v){
+  // 6 groups of 6 numbers, independence of (previous group, current group)
+  const G=6, n=v.length-1, need=G*G*5+1; if(v.length<need) return {need};
+  const m=Array.from({length:G},()=>new Array(G).fill(0));
+  for(let i=1;i<v.length;i++) m[Math.floor(v[i-1]/6)][Math.floor(v[i]/6)]++;
+  const rs=m.map(r=>r.reduce((a,b)=>a+b,0)), cs=m[0].map((_,j)=>m.reduce((a,r)=>a+r[j],0));
+  let chi=0; for(let i=0;i<G;i++)for(let j=0;j<G;j++){const e=rs[i]*cs[j]/n; if(e>0) chi+=(m[i][j]-e)**2/e;}
+  const df=(G-1)*(G-1);
+  return {stat:`χ² = ${f(chi,1)}, df = ${df}`, p:chi2Sf(chi,df)};
+}
+function runs(bits){
+  const n=bits.length, n1=bits.filter(b=>b).length, n2=n-n1;
+  if(n1<10||n2<10) return null;
+  let R=1; for(let i=1;i<n;i++) if(bits[i]!==bits[i-1]) R++;
+  const mu=2*n1*n2/n+1, vr=2*n1*n2*(2*n1*n2-n)/(n*n*(n-1)), z=(R-mu)/Math.sqrt(vr);
+  return {stat:`серий ${R}, ожидалось ${f(mu,1)}, z = ${f(z,2)}`, p:normTwoSided(z)};
+}
+function tRunsHL(v){ if(v.length<40) return {need:40}; return runs(v.map(x=>x>=K/2))||{need:v.length+10}; }
+function tRunsEO(v){ if(v.length<40) return {need:40}; return runs(v.map(x=>(x+state.base)%2===0))||{need:v.length+10}; }
+function tRepeat(v){
+  const need=200; if(v.length<need) return {need};
+  let r=0; for(let i=1;i<v.length;i++) if(v[i]===v[i-1]) r++;
+  const n=v.length-1;
+  return {stat:`${r} повторов подряд, ожидалось ${f(n/K,1)}`, p:binomTwo(r,n,1/K)};
+}
+function tLjungBox(v){
+  const L=10, n=v.length, need=100; if(n<need) return {need};
+  const m=v.reduce((a,b)=>a+b,0)/n, d=v.map(x=>x-m), den=d.reduce((s,x)=>s+x*x,0);
+  if(den===0) return {stat:"все значения одинаковы", p:0};
+  let Q=0, worst={k:1,r:0};
+  for(let k=1;k<=L;k++){ let s=0; for(let t=0;t<n-k;t++) s+=d[t]*d[t+k]; const r=s/den; Q+=r*r/(n-k); if(Math.abs(r)>Math.abs(worst.r)) worst={k,r}; }
+  Q*=n*(n+2);
+  return {stat:`Q = ${f(Q,1)}, df = ${L}; max |r| = ${f(Math.abs(worst.r),3)} на лаге ${worst.k}`, p:chi2Sf(Q,L)};
+}
+function tPeriod(v){
+  // exact cycle detection: does the tail repeat with some period?
+  const n=v.length; if(n<60) return {need:60};
+  for(let P=1;P<=Math.floor(n/3);P++){
+    let ok=true; for(let i=n-1;i>=n-2*P-10&&i-P>=0;i--){ if(v[i]!==v[i-P]){ok=false;break;} }
+    if(ok&&2*P+10<=n) return {stat:`последовательность повторяется с периодом ${P}`, p:Math.pow(1/K,P+10)};
+  }
+  return {stat:`повторяющийся цикл не найден (до ${Math.floor(n/3)})`, p:1, exact:true};
+}
+
+/* ---------- walk-forward prediction ---------- */
+function argmax(arr){ let b=0; for(let i=1;i<arr.length;i++) if(arr[i]>arr[b]) b=i; return b; }
+function argmin(arr){ let b=0; for(let i=1;i<arr.length;i++) if(arr[i]<arr[b]) b=i; return b; }
+function predictions(v){
+  const W=K, n=v.length;
+  const S={hot:{name:"Самое частое («горячее»)",hit:0,tot:0},cold:{name:"Самое редкое («должно выпасть»)",hit:0,tot:0},
+           rep:{name:"Повтор последнего",hit:0,tot:0},m1:{name:"Марков порядка 1 (по последнему числу)",hit:0,tot:0},
+           m2:{name:"Марков порядка 2 (по двум последним)",hit:0,tot:0}};
+  const cnt=new Array(K).fill(0), t1=Array.from({length:K},()=>new Array(K).fill(0)), t2=new Map();
+  for(let i=0;i<n;i++){
+    const x=v[i];
+    if(i>=W){
+      const hot=argmax(cnt), cold=argmin(cnt), last=v[i-1];
+      const r1=t1[last], m1=r1.some(c=>c>0)?argmax(r1):hot;
+      const key=v[i-2]*K+last, r2=t2.get(key), m2=r2?argmax(r2):m1;
+      [["hot",hot],["cold",cold],["rep",last],["m1",m1],["m2",m2]].forEach(([k,g])=>{S[k].tot++; if(g===x) S[k].hit++;});
+    }
+    cnt[x]++;
+    if(i>=1) t1[v[i-1]][x]++;
+    if(i>=2){ const key=v[i-2]*K+v[i-1]; if(!t2.has(key)) t2.set(key,new Array(K).fill(0)); t2.get(key)[x]++; }
+  }
+  return Object.values(S).map(s=>({...s, p: s.tot? binomUpper(s.hit,s.tot,1/K):1}));
+}
+
+/* ---------- formatting ---------- */
+function f(x,d){ return Number(x).toLocaleString("ru-RU",{minimumFractionDigits:d,maximumFractionDigits:d}); }
+function fp(p){ if(p==null) return "—"; if(p<1e-4) return "< 0,0001"; return f(p,4); }
+function esc(s){ return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function chip(cls,txt){ return `<span class="chip ${cls}">${txt}</span>`; }
+
+/* ---------- storage ---------- */
+function save(){ try{ localStorage.setItem(KEY,JSON.stringify(state)); }catch(e){} }
+function load(){ try{ const s=JSON.parse(localStorage.getItem(KEY)||"null"); if(s&&Array.isArray(s.seq)&&(s.base===0||s.base===1)) return s; }catch(e){} return null; }
+function cryptoInt(k){ const lim=Math.floor(0x100000000/k)*k, a=new Uint32Array(1); for(;;){ crypto.getRandomValues(a); if(a[0]<lim) return a[0]%k; } }
+function exampleSeq(){ return Array.from({length:600},()=>cryptoInt(K)); }
+
+/* ---------- input ---------- */
+const $=id=>document.getElementById(id);
+function ensureOwn(){ if(state.isExample){ state.seq=[]; state.isExample=false; } }
+function push(vals){ ensureOwn(); state.seq.push(...vals); save(); render(); }
+function parseVal(s){ const n=Number(s); if(!Number.isInteger(n)) return null; const v=n-state.base; return v>=0&&v<K?v:null; }
+
+function buildKeypad(){
+  const kp=$("keypad"); kp.innerHTML="";
+  for(let i=0;i<K;i++){ const b=document.createElement("button"); b.className="key"; b.type="button"; b.textContent=i+state.base; b.setAttribute("aria-label","Выпало "+(i+state.base)); b.addEventListener("click",()=>push([i])); kp.appendChild(b); }
+  $("one").min=state.base; $("one").max=state.base+K-1;
+}
+
+/* ---------- render ---------- */
+function render(){
+  const v=state.seq, n=v.length;
+  $("count").textContent=n.toLocaleString("ru-RU");
+  $("exampleBanner").hidden=!state.isExample;
+  $("range").value=String(state.base);
+  const tail=v.slice(-60);
+  $("tape").innerHTML=tail.length? tail.map((x,i)=>`<span class="${i===tail.length-1?"last":""}">${x+state.base}</span>`).join("") : '<span style="background:none;color:var(--muted)">Пока пусто: нажмите число, которое выпало</span>';
+
+  const defs=[
+    ["Равномерность частот","все 36 чисел выпадают одинаково часто",tUniform],
+    ["Зависимость от предыдущего","группа следующего числа не зависит от группы предыдущего (6×6)",tTransition],
+    ["Серии больше/меньше","чередование нижней и верхней половины",tRunsHL],
+    ["Серии чёт/нечет","чередование чётных и нечётных",tRunsEO],
+    ["Повтор подряд","одно и то же число два раза подряд",tRepeat],
+    ["Автокорреляция (Льюнг — Бокс)","линейная связь с числами 1–10 спинов назад",tLjungBox],
+    ["Зацикливание","генератор не повторяет один и тот же отрезок",tPeriod],
+  ];
+  const res=defs.map(([name,what,fn])=>({name,what,...fn(v)}));
+  const pred=predictions(v), predOk=v.length>=200;
+  const predBest=pred.reduce((a,b)=>a.p<b.p?a:b);
+  res.push({name:"Угадывание следующего",what:"лучшая из 5 стратегий ниже, с поправкой на выбор лучшей",
+    ...(predOk?{stat:`${predBest.name}: ${predBest.hit} из ${predBest.tot}`, p:Math.min(1,predBest.p*pred.length)}:{need:200})});
+
+  // Holm over tests that ran
+  const ran=res.filter(r=>r.p!=null).sort((a,b)=>a.p-b.p), m=ran.length;
+  let run=0; ran.forEach((r,i)=>{ run=Math.max(run,Math.min(1,(m-i)*r.p)); r.adj=run; });
+
+  $("tests").innerHTML=res.map(r=>{
+    let st;
+    if(r.p==null) st=chip("na",`нужно ≥ ${r.need}`);
+    else if(r.adj<ALPHA) st=chip("bad","Отклонение");
+    else if(r.p<ALPHA) st=chip("warn","Под вопросом");
+    else st=chip("ok","Норма");
+    return `<tr><td><div>${esc(r.name)}</div><div class="what">${esc(r.what)}</div></td><td class="num" style="white-space:normal">${r.stat?esc(r.stat):"—"}</td><td class="num">${fp(r.p)}</td><td class="num">${r.adj!=null?fp(r.adj):"—"}</td><td>${st}</td></tr>`;
+  }).join("");
+
+  $("pred").innerHTML=pred.map(s=>`<tr><td>${esc(s.name)}</td><td class="num">${s.tot}</td><td class="num">${s.hit}</td><td class="num">${s.tot?f(100*s.hit/s.tot,2)+"%":"—"}</td><td class="num">${predOk?fp(s.p):"нужно ≥ 200"}</td></tr>`).join("");
+
+  // verdict
+  const bad=res.filter(r=>r.adj!=null&&r.adj<ALPHA), warn=res.filter(r=>r.p!=null&&r.p<ALPHA&&!(r.adj<ALPHA)), pending=res.filter(r=>r.p==null);
+  const vd=$("verdict"); let cls, h, t;
+  if(n===0){ cls="na"; h="Нет данных"; t="Нажимайте числа по мере выпадения. Первые тесты запустятся с 40 спинов, полный набор — с 200."; }
+  else if(bad.length){ cls="bad"; h="Генератор ведёт себя не как случайный"; t="Отклонение: "+bad.map(r=>r.name.toLowerCase()).join(", ")+". Проверьте код ГСЧ: инициализацию seed, приведение к диапазону (modulo bias), переиспользование состояния между раундами."; }
+  else if(warn.length){ cls="warn"; h="Есть подозрительный результат"; t=warn.map(r=>r.name).join(", ")+": p < 0,01 до поправки, но после поправки Холма значимость не подтверждается. Наберите больше спинов и посмотрите, сохранится ли эффект."; }
+  else if(pending.length===res.length){ cls="na"; h="Мало данных"; t=`Записано ${n}. Первые тесты запустятся с 40 спинов.`; }
+  else { cls="ok"; h="Отклонений не найдено"; t=pending.length?`Проведено ${res.length-pending.length} из ${res.length} тестов. Остальным нужно больше данных (до ${Math.max(...pending.map(r=>r.need))} спинов).`:`Все ${res.length} тестов пройдены на ${n.toLocaleString("ru-RU")} спинах. Ни одна стратегия не угадывает чаще случайного.`; }
+  if(state.isExample) t+=" Это результат по примеру, а не по вашим данным.";
+  vd.className="verdict "+cls; vd.innerHTML=`<span class="eyebrow">Вывод</span><strong>${esc(h)}</strong><span>${esc(t)}</span>`;
+
+  drawChart(v);
+}
+
+function drawChart(v){
+  const n=v.length, c=new Array(K).fill(0); v.forEach(x=>c[x]++);
+  const W=720,H=220,L=36,R=8,T=10,B=26, pw=W-L-R, ph=H-T-B;
+  const e=n/K, sd=Math.sqrt(n*(1/K)*(1-1/K));
+  const ymax=Math.max(1,...c,Math.ceil(e+3*sd));
+  const y=val=>T+ph-(val/ymax)*ph, bw=pw/K;
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" style="min-width:520px;display:block" role="img" aria-label="Частоты выпадения каждого числа">`;
+  const step=ymax<=10?2:ymax<=40?5:ymax<=100?20:ymax<=400?50:Math.pow(10,Math.floor(Math.log10(ymax)));
+  for(let g=0;g<=ymax;g+=step){ s+=`<line x1="${L}" x2="${W-R}" y1="${y(g)}" y2="${y(g)}" stroke="var(--line)" stroke-width="1"/><text x="${L-6}" y="${y(g)+3}" text-anchor="end">${g}</text>`; }
+  if(n>0){
+    s+=`<rect x="${L}" y="${y(Math.min(ymax,e+2*sd))}" width="${pw}" height="${y(Math.max(0,e-2*sd))-y(Math.min(ymax,e+2*sd))}" fill="var(--band)"/>`;
+  }
+  c.forEach((cnt,i)=>{
+    const hi=n>=K*5&&Math.abs(cnt-e)>3*sd;
+    s+=`<rect x="${L+i*bw+bw*0.15}" y="${y(cnt)}" width="${bw*0.7}" height="${T+ph-y(cnt)}" fill="${hi?"var(--bar-hi)":"var(--bar)"}" rx="1.5"><title>${i+state.base}: ${cnt}</title></rect>`;
+    s+=`<text x="${L+i*bw+bw/2}" y="${H-10}" text-anchor="middle">${i+state.base}</text>`;
+  });
+  if(n>0) s+=`<line x1="${L}" x2="${W-R}" y1="${y(e)}" y2="${y(e)}" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"/>`;
+  s+=`</svg>`;
+  $("chart").innerHTML=s;
+}
+
+/* ---------- wiring ---------- */
+$("undo").addEventListener("click",()=>{ if(state.isExample) return; state.seq.pop(); save(); render(); });
+$("oneForm").addEventListener("submit",e=>{ e.preventDefault(); const x=parseVal($("one").value); if(x==null){ $("one").setCustomValidity(`Введите целое от ${state.base} до ${state.base+K-1}`); $("one").reportValidity(); return; } $("one").setCustomValidity(""); push([x]); $("one").value=""; $("one").focus(); });
+$("one").addEventListener("input",()=>$("one").setCustomValidity(""));
+$("addBulk").addEventListener("click",()=>{
+  const toks=$("bulk").value.split(/[^0-9-]+/).filter(Boolean), ok=[], bad=[];
+  toks.forEach(t=>{ const x=parseVal(t); x==null?bad.push(t):ok.push(x); });
+  if(ok.length) push(ok);
+  $("bulkMsg").textContent = ok.length||bad.length ? `Добавлено: ${ok.length}.`+(bad.length?` Пропущено (вне диапазона ${state.base}–${state.base+K-1}): ${bad.slice(0,10).join(", ")}${bad.length>10?"…":""}`:"") : "Список пуст.";
+  if(!bad.length) $("bulk").value="";
+});
+$("copyAll").addEventListener("click",()=>{
+  const txt=state.seq.map(x=>x+state.base).join(" ");
+  const done=()=>{ $("copyMsg").hidden=false; setTimeout(()=>$("copyMsg").hidden=true,1500); };
+  try{ navigator.clipboard.writeText(txt).then(done,()=>{ $("bulk").value=txt; $("bulk").select(); }); }catch(e){ $("bulk").value=txt; $("bulk").select(); }
+});
+$("clear").addEventListener("click",()=>{ $("clearRow").hidden=true; $("clearConfirm").hidden=false; });
+$("clearNo").addEventListener("click",()=>{ $("clearRow").hidden=false; $("clearConfirm").hidden=true; });
+$("clearYes").addEventListener("click",()=>{ state.seq=[]; state.isExample=false; save(); $("clearRow").hidden=false; $("clearConfirm").hidden=true; render(); });
+$("startOwn").addEventListener("click",()=>{ state.seq=[]; state.isExample=false; save(); render(); });
+$("range").addEventListener("change",()=>{ state.base=Number($("range").value); save(); buildKeypad(); render(); });
+
+const saved=load();
+state = saved || {base:1, seq:exampleSeq(), isExample:true};
+buildKeypad(); render();
+
+// test hook for verification
+// window.__rngAudit={tUniform,tTransition,tRunsHL,tRepeat,tLjungBox,tPeriod,predictions,chi2Sf,binomUpper};
+})();
+</script>
+</body>
+</html>
